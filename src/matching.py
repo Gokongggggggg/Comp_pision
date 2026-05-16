@@ -6,19 +6,17 @@ import matplotlib.pyplot as plt
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-ORIGINAL_DIR = PROJECT_ROOT / "dataset" / "original" / "train" / "real"
+DATASET_DIR = PROJECT_ROOT / "dataset"
+ORIGINAL_DIR = DATASET_DIR / "original" / "train"
 OUTPUT_DIR = PROJECT_ROOT / "outputs" / "matching"
 SUMMARY_PATH = OUTPUT_DIR / "all_matching_summary.csv"
 RATIO_THRESHOLD = 0.75
+LABELS = ("real", "fake")
 
 AUGMENTATIONS = {
-    "gaussian_blur": PROJECT_ROOT / "dataset" / "gaussian_blur" / "train" / "real",
-    "gaussian_noise": PROJECT_ROOT / "dataset" / "gaussian_noise" / "train" / "real",
-    "jpeg_compression": PROJECT_ROOT
-    / "dataset"
-    / "jpeg_compression"
-    / "train"
-    / "real",
+    "gaussian_blur": DATASET_DIR / "gaussian_blur" / "train",
+    "gaussian_noise": DATASET_DIR / "gaussian_noise" / "train",
+    "jpeg_compression": DATASET_DIR / "jpeg_compression" / "train",
 }
 
 
@@ -101,7 +99,9 @@ def detect_features(image_gray, detector):
 
 def get_good_matches(descriptors_a, descriptors_b, norm: int):
     """Match descriptors with BFMatcher and filter them using Lowe's ratio test."""
-    if descriptors_a is None or descriptors_b is None or len(descriptors_b) < 2:
+    if descriptors_a is None or descriptors_b is None:
+        return []
+    if len(descriptors_a) == 0 or len(descriptors_b) < 2:
         return []
 
     matcher = cv2.BFMatcher(norm)
@@ -146,6 +146,7 @@ def save_matches_image(
 def write_summary(rows, output_path: Path) -> None:
     """Write matching counts for each method and augmentation to CSV."""
     fieldnames = [
+        "label",
         "method",
         "augmentation",
         "image_a",
@@ -165,10 +166,14 @@ def write_summary(rows, output_path: Path) -> None:
 def print_summary_table(rows) -> None:
     """Print a compact matching summary in the terminal."""
     print("\nSummary results:")
-    print(f"{'Method':<8} {'Augmentation':<18} {'Original KP':>12} {'Aug KP':>8} {'Good':>8}")
-    print("-" * 60)
+    print(
+        f"{'Label':<6} {'Method':<8} {'Augmentation':<18} "
+        f"{'Original KP':>12} {'Aug KP':>8} {'Good':>8}"
+    )
+    print("-" * 68)
     for row in rows:
         print(
+            f"{row['label']:<6} "
             f"{row['method']:<8} "
             f"{row['augmentation']:<18} "
             f"{row['keypoints_original']:>12} "
@@ -178,6 +183,7 @@ def print_summary_table(rows) -> None:
 
 
 def compare_with_augmentation(
+    label: str,
     method: str,
     augmentation: str,
     augmentation_dir: Path,
@@ -192,7 +198,7 @@ def compare_with_augmentation(
     augmented_path = find_corresponding_augmented_image(
         original_path,
         augmentation,
-        augmentation_dir,
+        augmentation_dir / label,
     )
     augmented_bgr, augmented_gray = load_image_pair(augmented_path)
     keypoints_augmented, descriptors_augmented = detect_features(
@@ -201,7 +207,7 @@ def compare_with_augmentation(
     )
 
     good_matches = get_good_matches(descriptors_original, descriptors_augmented, norm)
-    output_path = OUTPUT_DIR / f"{method}_original_vs_{augmentation}.png"
+    output_path = OUTPUT_DIR / label / f"{method}_original_vs_{augmentation}.png"
     save_matches_image(
         original_bgr,
         keypoints_original,
@@ -211,7 +217,8 @@ def compare_with_augmentation(
         output_path,
     )
 
-    print(f"\nMethod: {method.upper()}")
+    print(f"\nLabel: {label}")
+    print(f"Method: {method.upper()}")
     print(f"Augmentation: {augmentation}")
     print(f"Image A path: {original_path}")
     print(f"Image B path: {augmented_path}")
@@ -221,6 +228,7 @@ def compare_with_augmentation(
     print(f"Saved matching result to: {output_path}")
 
     return {
+        "label": label,
         "method": method.upper(),
         "augmentation": augmentation,
         "image_a": str(original_path),
@@ -232,34 +240,38 @@ def compare_with_augmentation(
 
 
 def main() -> None:
-    original_path = find_first_jpg(ORIGINAL_DIR)
-    original_bgr, original_gray = load_image_pair(original_path)
-
     summary_rows = []
     detector_configs = get_detector_configs()
 
-    for method, config in detector_configs.items():
-        detector = config["detector"]
-        norm = config["norm"]
-        keypoints_original, descriptors_original = detect_features(
-            original_gray,
-            detector,
-        )
+    for label in LABELS:
+        original_path = find_first_jpg(ORIGINAL_DIR / label)
+        original_bgr, original_gray = load_image_pair(original_path)
 
-        for augmentation, augmentation_dir in AUGMENTATIONS.items():
-            summary_rows.append(
-                compare_with_augmentation(
-                    method,
-                    augmentation,
-                    augmentation_dir,
-                    original_path,
-                    original_bgr,
-                    keypoints_original,
-                    descriptors_original,
-                    detector,
-                    norm,
-                )
+        print(f"\nSelected {label} original image: {original_path}")
+
+        for method, config in detector_configs.items():
+            detector = config["detector"]
+            norm = config["norm"]
+            keypoints_original, descriptors_original = detect_features(
+                original_gray,
+                detector,
             )
+
+            for augmentation, augmentation_dir in AUGMENTATIONS.items():
+                summary_rows.append(
+                    compare_with_augmentation(
+                        label,
+                        method,
+                        augmentation,
+                        augmentation_dir,
+                        original_path,
+                        original_bgr,
+                        keypoints_original,
+                        descriptors_original,
+                        detector,
+                        norm,
+                    )
+                )
 
     write_summary(summary_rows, SUMMARY_PATH)
     print_summary_table(summary_rows)

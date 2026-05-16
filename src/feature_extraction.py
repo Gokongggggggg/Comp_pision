@@ -13,22 +13,33 @@ OUTPUT_VIS_DIR = PROJECT_ROOT / "outputs" / "figures"
 
 CSV_OUTPUT_PATH = PROJECT_ROOT / "outputs" / "feature_statistics.csv"
 
+LABELS = ("real", "fake")
+VISUALIZATION_LIMIT_PER_GROUP = 5
 
 AUGMENTATIONS = {
-    "original": DATASET_DIR / "original" / "train" / "real",
-    "gaussian_blur": DATASET_DIR / "gaussian_blur" / "train" / "real",
-    "gaussian_noise": DATASET_DIR / "gaussian_noise" / "train" / "real",
-    "jpeg_compression": DATASET_DIR / "jpeg_compression" / "train" / "real",
+    "original": DATASET_DIR / "original" / "train",
+    "gaussian_blur": DATASET_DIR / "gaussian_blur" / "train",
+    "gaussian_noise": DATASET_DIR / "gaussian_noise" / "train",
+    "jpeg_compression": DATASET_DIR / "jpeg_compression" / "train",
 }
+
+
+def get_detector_configs():
+    """Create feature detectors for all supported methods."""
+    return {
+        "SIFT": cv2.SIFT_create(),
+        "ORB": cv2.ORB_create(nfeatures=1000),
+        "AKAZE": cv2.AKAZE_create(),
+    }
 
 
 def get_image_paths(folder: Path):
     """Get all JPG images from folder."""
 
-    image_paths = []
+    image_paths = set()
 
     for extension in ("*.jpg", "*.jpeg", "*.JPG", "*.JPEG"):
-        image_paths.extend(folder.glob(extension))
+        image_paths.update(folder.glob(extension))
 
     return sorted(image_paths)
 
@@ -78,12 +89,13 @@ def save_keypoint_visualization(
     image_bgr,
     keypoints,
     method_name,
+    label,
     augmentation,
     image_name,
 ):
     """Save keypoint visualization image."""
 
-    output_dir = OUTPUT_VIS_DIR / method_name.lower()
+    output_dir = OUTPUT_VIS_DIR / method_name.lower() / label
     output_dir.mkdir(parents=True, exist_ok=True)
 
     visualized = cv2.drawKeypoints(
@@ -97,74 +109,87 @@ def save_keypoint_visualization(
 
     cv2.imwrite(str(output_path), visualized)
 
-    print(f"Saved visualization: {output_path}")
+    return output_path
+
+
+def count_original_images_by_label():
+    """Count original images for each label."""
+    counts = {}
+    for label in LABELS:
+        counts[label] = len(get_image_paths(AUGMENTATIONS["original"] / label))
+    return counts
+
+
+def to_project_relative_path(image_path: Path) -> str:
+    """Return a compact project-relative path for CSV output."""
+    return image_path.relative_to(PROJECT_ROOT).as_posix()
 
 
 def process_images():
-    """Process all images using ORB and AKAZE."""
-
-    orb = cv2.ORB_create(
-        nfeatures=1000
-    )
-
-    akaze = cv2.AKAZE_create()
-
-    methods = {
-        "ORB": orb,
-        "AKAZE": akaze,
-    }
+    """Process real and fake images using SIFT, ORB, and AKAZE."""
+    methods = get_detector_configs()
 
     csv_rows = []
+    visualization_counts = {}
 
-    for augmentation, folder in AUGMENTATIONS.items():
+    original_counts = count_original_images_by_label()
+    print("\nImage summary from original dataset:")
+    print(f"Real images: {original_counts['real']}")
+    print(f"Fake images: {original_counts['fake']}")
 
-        image_paths = get_image_paths(folder)
+    for label in LABELS:
+        for augmentation, train_folder in AUGMENTATIONS.items():
+            folder = train_folder / label
+            image_paths = get_image_paths(folder)
 
-        print(f"\nProcessing augmentation: {augmentation}")
-        print(f"Found {len(image_paths)} images")
+            print(
+                f"\nProcessing label={label} | "
+                f"augmentation={augmentation} | "
+                f"images={len(image_paths)}"
+            )
 
-        for image_path in image_paths:
+            for image_index, image_path in enumerate(image_paths):
+                image_name = image_path.stem
 
-            image_name = image_path.stem
+                image_bgr, image_gray = load_grayscale_image(image_path)
 
-            image_bgr, image_gray = load_grayscale_image(image_path)
+                for method_name, detector in methods.items():
+                    keypoints, descriptors = detect_features(
+                        method_name,
+                        detector,
+                        image_gray,
+                    )
 
-            for method_name, detector in methods.items():
+                    stats = compute_descriptor_statistics(descriptors)
 
-                keypoints, descriptors = detect_features(
-                    method_name,
-                    detector,
-                    image_gray,
-                )
+                    vis_key = (method_name, label, augmentation)
+                    visualization_counts.setdefault(vis_key, 0)
+                    if visualization_counts[vis_key] < VISUALIZATION_LIMIT_PER_GROUP:
+                        save_keypoint_visualization(
+                            image_bgr,
+                            keypoints,
+                            method_name,
+                            label,
+                            augmentation,
+                            image_name,
+                        )
+                        visualization_counts[vis_key] += 1
 
-                stats = compute_descriptor_statistics(descriptors)
+                    row = {
+                        "image_path": to_project_relative_path(image_path),
+                        "label": label,
+                        "method": method_name,
+                        "augmentation": augmentation,
+                        "num_keypoints": len(keypoints),
+                        "descriptor_shape": stats["descriptor_shape"],
+                        "descriptor_mean": stats["descriptor_mean"],
+                        "descriptor_variance": stats["descriptor_variance"],
+                    }
 
-                save_keypoint_visualization(
-                    image_bgr,
-                    keypoints,
-                    method_name,
-                    augmentation,
-                    image_name,
-                )
+                    csv_rows.append(row)
 
-                row = {
-                    "image_path": str(image_path),
-                    "method": method_name,
-                    "augmentation": augmentation,
-                    "num_keypoints": len(keypoints),
-                    "descriptor_shape": stats["descriptor_shape"],
-                    "descriptor_mean": stats["descriptor_mean"],
-                    "descriptor_variance": stats["descriptor_variance"],
-                }
-
-                csv_rows.append(row)
-
-                print(
-                    f"{method_name} | "
-                    f"{augmentation} | "
-                    f"{image_name} | "
-                    f"Keypoints: {len(keypoints)}"
-                )
+                if (image_index + 1) % 500 == 0:
+                    print(f"Processed {image_index + 1}/{len(image_paths)} images")
 
     return csv_rows
 
@@ -176,6 +201,7 @@ def save_csv(rows):
 
     fieldnames = [
         "image_path",
+        "label",
         "method",
         "augmentation",
         "num_keypoints",
