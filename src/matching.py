@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ORIGINAL_DIR = PROJECT_ROOT / "dataset" / "original" / "train" / "real"
 OUTPUT_DIR = PROJECT_ROOT / "outputs" / "matching"
-SUMMARY_PATH = OUTPUT_DIR / "sift_matching_summary.csv"
+SUMMARY_PATH = OUTPUT_DIR / "all_matching_summary.csv"
 RATIO_THRESHOLD = 0.75
 
 AUGMENTATIONS = {
@@ -20,6 +20,24 @@ AUGMENTATIONS = {
     / "train"
     / "real",
 }
+
+
+def get_detector_configs() -> dict:
+    """Create feature detectors and their matching norm configurations."""
+    return {
+        "sift": {
+            "detector": cv2.SIFT_create(),
+            "norm": cv2.NORM_L2,
+        },
+        "orb": {
+            "detector": cv2.ORB_create(),
+            "norm": cv2.NORM_HAMMING,
+        },
+        "akaze": {
+            "detector": cv2.AKAZE_create(),
+            "norm": cv2.NORM_HAMMING,
+        },
+    }
 
 
 def find_first_jpg(folder: Path) -> Path:
@@ -66,7 +84,7 @@ def find_corresponding_augmented_image(
 
 
 def load_image_pair(image_path: Path) -> tuple:
-    """Load an image in color and convert it to grayscale for SIFT."""
+    """Load an image in color and convert it to grayscale."""
     image_bgr = cv2.imread(str(image_path))
     if image_bgr is None:
         raise ValueError(f"Failed to load image: {image_path}")
@@ -75,18 +93,18 @@ def load_image_pair(image_path: Path) -> tuple:
     return image_bgr, image_gray
 
 
-def detect_sift_features(image_gray, sift):
-    """Detect SIFT keypoints and descriptors from a grayscale image."""
-    keypoints, descriptors = sift.detectAndCompute(image_gray, None)
+def detect_features(image_gray, detector):
+    """Detect keypoints and descriptors from a grayscale image."""
+    keypoints, descriptors = detector.detectAndCompute(image_gray, None)
     return keypoints, descriptors
 
 
-def get_good_matches(descriptors_a, descriptors_b):
+def get_good_matches(descriptors_a, descriptors_b, norm: int):
     """Match descriptors with BFMatcher and filter them using Lowe's ratio test."""
     if descriptors_a is None or descriptors_b is None or len(descriptors_b) < 2:
         return []
 
-    matcher = cv2.BFMatcher(cv2.NORM_L2)
+    matcher = cv2.BFMatcher(norm)
     knn_matches = matcher.knnMatch(descriptors_a, descriptors_b, k=2)
 
     good_matches = []
@@ -109,7 +127,7 @@ def save_matches_image(
     good_matches,
     output_path: Path,
 ) -> None:
-    """Draw and save SIFT feature matches between two images."""
+    """Draw and save feature matches between two images."""
     matched_bgr = cv2.drawMatches(
         image_a,
         keypoints_a,
@@ -126,8 +144,9 @@ def save_matches_image(
 
 
 def write_summary(rows, output_path: Path) -> None:
-    """Write SIFT matching counts for each augmentation to CSV."""
+    """Write matching counts for each method and augmentation to CSV."""
     fieldnames = [
+        "method",
         "augmentation",
         "image_a",
         "image_b",
@@ -143,29 +162,46 @@ def write_summary(rows, output_path: Path) -> None:
         writer.writerows(rows)
 
 
+def print_summary_table(rows) -> None:
+    """Print a compact matching summary in the terminal."""
+    print("\nSummary results:")
+    print(f"{'Method':<8} {'Augmentation':<18} {'Original KP':>12} {'Aug KP':>8} {'Good':>8}")
+    print("-" * 60)
+    for row in rows:
+        print(
+            f"{row['method']:<8} "
+            f"{row['augmentation']:<18} "
+            f"{row['keypoints_original']:>12} "
+            f"{row['keypoints_augmented']:>8} "
+            f"{row['good_matches']:>8}"
+        )
+
+
 def compare_with_augmentation(
+    method: str,
     augmentation: str,
     augmentation_dir: Path,
     original_path: Path,
     original_bgr,
     keypoints_original,
     descriptors_original,
-    sift,
+    detector,
+    norm: int,
 ) -> dict:
-    """Run SIFT matching between the original image and one augmentation."""
+    """Run feature matching between the original image and one augmentation."""
     augmented_path = find_corresponding_augmented_image(
         original_path,
         augmentation,
         augmentation_dir,
     )
     augmented_bgr, augmented_gray = load_image_pair(augmented_path)
-    keypoints_augmented, descriptors_augmented = detect_sift_features(
+    keypoints_augmented, descriptors_augmented = detect_features(
         augmented_gray,
-        sift,
+        detector,
     )
 
-    good_matches = get_good_matches(descriptors_original, descriptors_augmented)
-    output_path = OUTPUT_DIR / f"sift_original_vs_{augmentation}.png"
+    good_matches = get_good_matches(descriptors_original, descriptors_augmented, norm)
+    output_path = OUTPUT_DIR / f"{method}_original_vs_{augmentation}.png"
     save_matches_image(
         original_bgr,
         keypoints_original,
@@ -175,7 +211,8 @@ def compare_with_augmentation(
         output_path,
     )
 
-    print(f"\nAugmentation: {augmentation}")
+    print(f"\nMethod: {method.upper()}")
+    print(f"Augmentation: {augmentation}")
     print(f"Image A path: {original_path}")
     print(f"Image B path: {augmented_path}")
     print(f"Total keypoints original: {len(keypoints_original)}")
@@ -184,6 +221,7 @@ def compare_with_augmentation(
     print(f"Saved matching result to: {output_path}")
 
     return {
+        "method": method.upper(),
         "augmentation": augmentation,
         "image_a": str(original_path),
         "image_b": str(augmented_path),
@@ -197,23 +235,34 @@ def main() -> None:
     original_path = find_first_jpg(ORIGINAL_DIR)
     original_bgr, original_gray = load_image_pair(original_path)
 
-    sift = cv2.SIFT_create()
-    keypoints_original, descriptors_original = detect_sift_features(original_gray, sift)
+    summary_rows = []
+    detector_configs = get_detector_configs()
 
-    summary_rows = [
-        compare_with_augmentation(
-            augmentation,
-            augmentation_dir,
-            original_path,
-            original_bgr,
-            keypoints_original,
-            descriptors_original,
-            sift,
+    for method, config in detector_configs.items():
+        detector = config["detector"]
+        norm = config["norm"]
+        keypoints_original, descriptors_original = detect_features(
+            original_gray,
+            detector,
         )
-        for augmentation, augmentation_dir in AUGMENTATIONS.items()
-    ]
+
+        for augmentation, augmentation_dir in AUGMENTATIONS.items():
+            summary_rows.append(
+                compare_with_augmentation(
+                    method,
+                    augmentation,
+                    augmentation_dir,
+                    original_path,
+                    original_bgr,
+                    keypoints_original,
+                    descriptors_original,
+                    detector,
+                    norm,
+                )
+            )
 
     write_summary(summary_rows, SUMMARY_PATH)
+    print_summary_table(summary_rows)
     print(f"\nSaved CSV summary to: {SUMMARY_PATH}")
 
 

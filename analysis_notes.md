@@ -14,7 +14,7 @@ Gaussian blur resulted in 26 good matches, which is lower than JPEG compression 
 
 The results indicate that SIFT descriptors have some robustness to image distortion, but this robustness depends on the type of distortion. Distortions that preserve the main spatial structure of the image, such as JPEG compression in this sample, may still allow many descriptors to match. In contrast, distortions that modify local gradient patterns more randomly, such as Gaussian noise, can reduce descriptor consistency and decrease the number of reliable matches.
 
-This relationship shows that feature matching performance is closely connected to how much an augmentation changes local image structure. SIFT can remain effective when important edges and shapes are preserved, but matching quality may decline when keypoints become unstable or descriptors become less distinctive.
+These results show that feature matching performance is affected by how much an augmentation changes local image patterns and edges. SIFT still works relatively well when important edges and shapes are still visible, but matching quality may decline when keypoints become unstable or descriptors become less distinctive.
 
 # Conclusion
 
