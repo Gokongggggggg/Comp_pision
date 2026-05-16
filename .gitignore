@@ -1,3 +1,6 @@
+# Virtual environment
+.venv/
+
 # Datasets & generated artifacts (too large for git)
 dataset/
 processed_faces/
