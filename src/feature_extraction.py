@@ -14,7 +14,7 @@ OUTPUT_VIS_DIR = PROJECT_ROOT / "outputs" / "figures"
 CSV_OUTPUT_PATH = PROJECT_ROOT / "outputs" / "feature_statistics.csv"
 
 LABELS = ("real", "fake")
-VISUALIZATION_LIMIT_PER_GROUP = 5
+MAX_IMAGES_PER_FOLDER = 20
 
 AUGMENTATIONS = {
     "original": DATASET_DIR / "original" / "train",
@@ -35,13 +35,20 @@ def get_detector_configs():
 
 def get_image_paths(folder: Path):
     """Get all JPG images from folder."""
-
     image_paths = set()
 
     for extension in ("*.jpg", "*.jpeg", "*.JPG", "*.JPEG"):
         image_paths.update(folder.glob(extension))
 
     return sorted(image_paths)
+
+
+def get_limited_image_paths(folder: Path, max_images: int | None = MAX_IMAGES_PER_FOLDER):
+    """Get image paths with an optional maximum count for demo speed."""
+    image_paths = get_image_paths(folder)
+    if max_images is None:
+        return image_paths
+    return image_paths[:max_images]
 
 
 def load_grayscale_image(image_path: Path):
@@ -59,9 +66,7 @@ def load_grayscale_image(image_path: Path):
 
 def detect_features(method_name, detector, image_gray):
     """Detect keypoints and descriptors."""
-
     keypoints, descriptors = detector.detectAndCompute(image_gray, None)
-
     return keypoints, descriptors
 
 
@@ -94,8 +99,7 @@ def save_keypoint_visualization(
     image_name,
 ):
     """Save keypoint visualization image."""
-
-    output_dir = OUTPUT_VIS_DIR / method_name.lower() / label
+    output_dir = OUTPUT_VIS_DIR / "feature_extraction" / method_name.lower() / augmentation / label
     output_dir.mkdir(parents=True, exist_ok=True)
 
     visualized = cv2.drawKeypoints(
@@ -105,7 +109,7 @@ def save_keypoint_visualization(
         flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS,
     )
 
-    output_path = output_dir / f"{image_name}_{augmentation}.png"
+    output_path = output_dir / f"{image_name}.png"
 
     cv2.imwrite(str(output_path), visualized)
 
@@ -130,22 +134,23 @@ def process_images():
     methods = get_detector_configs()
 
     csv_rows = []
-    visualization_counts = {}
 
     original_counts = count_original_images_by_label()
     print("\nImage summary from original dataset:")
     print(f"Real images: {original_counts['real']}")
     print(f"Fake images: {original_counts['fake']}")
+    print(f"Max images per folder: {MAX_IMAGES_PER_FOLDER}")
 
     for label in LABELS:
         for augmentation, train_folder in AUGMENTATIONS.items():
             folder = train_folder / label
-            image_paths = get_image_paths(folder)
+            all_image_paths = get_image_paths(folder)
+            image_paths = get_limited_image_paths(folder)
 
             print(
                 f"\nProcessing label={label} | "
                 f"augmentation={augmentation} | "
-                f"images={len(image_paths)}"
+                f"images={len(image_paths)}/{len(all_image_paths)}"
             )
 
             for image_index, image_path in enumerate(image_paths):
@@ -162,18 +167,14 @@ def process_images():
 
                     stats = compute_descriptor_statistics(descriptors)
 
-                    vis_key = (method_name, label, augmentation)
-                    visualization_counts.setdefault(vis_key, 0)
-                    if visualization_counts[vis_key] < VISUALIZATION_LIMIT_PER_GROUP:
-                        save_keypoint_visualization(
-                            image_bgr,
-                            keypoints,
-                            method_name,
-                            label,
-                            augmentation,
-                            image_name,
-                        )
-                        visualization_counts[vis_key] += 1
+                    save_keypoint_visualization(
+                        image_bgr,
+                        keypoints,
+                        method_name,
+                        label,
+                        augmentation,
+                        image_name,
+                    )
 
                     row = {
                         "image_path": to_project_relative_path(image_path),
@@ -188,7 +189,7 @@ def process_images():
 
                     csv_rows.append(row)
 
-                if (image_index + 1) % 500 == 0:
+                if (image_index + 1) % 10 == 0:
                     print(f"Processed {image_index + 1}/{len(image_paths)} images")
 
     return csv_rows
