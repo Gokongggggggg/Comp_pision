@@ -1,147 +1,282 @@
-# Deepfake Detection — Preprocessing & Augmentation Pipeline
+# Deepfake Detection using Classical Computer Vision Feature Descriptors
 
-Pipeline preprocessing + augmentation untuk dataset **Celeb-DF v2** sebagai input
-deepfake detection. Output: face crops 112×112 yang sudah di-align + 4 versi
-augmented per crop, lengkap dengan manifest CSV.
+## Project Overview
 
----
+This project studies whether classical computer vision feature descriptors can
+support deepfake detection and robustness analysis. The dataset is based on
+**Celeb-DF v2**, with two classes:
 
-## Quick start
+- `real`
+- `fake`
+
+The project focuses on three local feature descriptors:
+
+- SIFT
+- ORB
+- AKAZE
+
+The main idea is to observe how these descriptors behave under common image
+augmentations and whether extracted statistics can be used for classical
+machine learning classification. The project includes descriptor robustness
+analysis, feature matching visualization, and real vs fake classification using
+statistical feature vectors.
+
+## Quick Start
 
 ```bash
 pip install -r requirements.txt
 jupyter notebook
 ```
 
-Buka notebook secara berurutan: `notebooks/01_preprocess.ipynb` → `notebooks/02_augment.ipynb`.
+Run the notebooks in this order:
 
-Data mentah (`Celeb-real/`, `Celeb-synthesis/`) tidak ada di repo (gitignore).
-Download dari [Celeb-DF v2](https://github.com/yuezunli/celeb-deepfakeforensics)
-dan letakkan di root project sebelum run `01_preprocess.ipynb`.
+1. `notebooks/01_preprocess.ipynb`
+2. `notebooks/02_augmentation.ipynb`
+3. `notebooks/03_feature_extraction.ipynb`
+4. `notebooks/04_matching_analysis.ipynb`
+5. `notebooks/05_machine_learning.ipynb`
 
----
+The raw Celeb-DF v2 folders are not included in this repository. Download the
+dataset from the official Celeb-DF v2 source and place the required folders in
+the project root before running preprocessing.
 
-## 01_preprocess.ipynb — Phase 1
+## Pipeline Overview
 
-**Tujuan**: extract & align face crops dari video Celeb-DF v2.
+### 1. Preprocessing
 
-**Pipeline**:
-1. Parse `List_of_testing_videos.txt` (split resmi Celeb-DF; tidak disertakan di
-   repo, download dari [Celeb-DF v2](https://github.com/yuezunli/celeb-deepfakeforensics))
-   → tentukan train/test split resmi (anti data leakage berdasarkan identitas).
-2. Subsample fake-train supaya seimbang dengan real-train (≈ 4.8k vs 4.8k).
-3. Sample frame *evenly spaced* per video (10 frame default).
-4. Deteksi wajah pakai **MTCNN** (`facenet-pytorch`) — dapat bounding box + 5
-   landmark.
-5. Filter confidence ≥ 0.90 → buang false positive.
-6. **Similarity transform** ke template ArcFace 112×112 (5-point alignment).
-7. Simpan JPG (q=95) + tulis `faces_manifest.csv`.
+The preprocessing phase prepares face crops from video frames.
 
-**Output** (one-time, tidak ada di repo): `processed_faces/{train,test}/{real,fake}/*.jpg`
-(13,999 crops total) + `processed_faces/faces_manifest.csv`. Notebook ini
-dijalankan sekali untuk generate input Phase 2; setelah `dataset/` terbentuk,
-folder ini boleh dihapus.
+- Extract frames from video
+- Detect faces
+- Align faces using facial landmarks
+- Crop aligned faces to `112x112`
+- Save processed face images and metadata
 
----
+### 2. Augmentation
 
-## 02_augment.ipynb — Phase 2
+The augmentation phase creates controlled image distortions for robustness
+analysis.
 
-**Tujuan**: produce 4 versi per face crop untuk evaluasi robustness descriptor.
+- Original image
+- Gaussian blur
+- Gaussian noise
+- JPEG compression
 
-**4 kondisi**:
+The output is stored in:
 
-| Augmentation | Parameter | Simulates |
-|---|---|---|
-| `original` | — (copy) | Control group |
-| `jpeg_compression` | q=30 roundtrip | Social media re-compression |
-| `gaussian_blur` | 5×5 kernel | Low-quality camera blur |
-| `gaussian_noise` | σ=25 | Sensor noise / low-light |
+```text
+dataset/{augmentation}/{split}/{class}/*.jpg
+```
 
-**Input**: `processed_faces/faces_manifest.csv` + crops Phase 1.
-**Output**: `dataset/{aug}/{split}/{class}/{stem}_{aug}.jpg` (55,996 file total)
-+ `dataset_manifest.csv` di root.
+### 3. Feature Extraction
 
-Seed `np.random.seed(42)` untuk reproducibility noise.
+The feature extraction phase computes local descriptors from real and fake
+images across all augmentation types.
 
----
+- SIFT keypoint detection and descriptor extraction
+- ORB keypoint detection and descriptor extraction
+- AKAZE keypoint detection and descriptor extraction
+- Descriptor statistics: mean and variance
+- Keypoint statistics: number of detected keypoints
 
-## dataset_manifest.csv — cara pakai
+Main script:
 
-File CSV ini adalah **source of truth** untuk downstream task (descriptor
-extraction, classifier training, evaluation). Berisi 55,996 baris (13,999 crop
-× 4 aug).
+```bash
+python src/feature_extraction.py
+```
 
-**Kolom**:
+Main output:
 
-| Kolom | Contoh | Keterangan |
-|---|---|---|
-| `original_path` | `train/real/id59_0008_f0000.jpg` | Path historis dari Phase 1 (relative ke `processed_faces/` saat di-generate). Untuk load gambar pakai `augmented_path` saja. |
-| `augmented_path` | `dataset/original/train/real/id59_0008_f0000_original.jpg` | Relative ke project root |
-| `augmentation` | `original` / `jpeg_compression` / `gaussian_blur` / `gaussian_noise` | Jenis augmentasi |
-| `label` | `0` / `1` | 0 = real, 1 = fake |
-| `split` | `train` / `test` | Sesuai Celeb-DF official split |
-| `class` | `real` / `fake` | String label (redundan dengan `label`, buat convenience) |
+```text
+outputs/feature_statistics.csv
+outputs/figures/feature_extraction/
+```
 
-**Contoh penggunaan**:
+### 4. Feature Matching
+
+The feature matching phase compares original images with augmented images.
+
+- BFMatcher
+- `NORM_L2` for SIFT
+- `NORM_HAMMING` for ORB and AKAZE
+- Lowe Ratio Test
+- Matching visualization for real and fake samples
+
+Main script:
+
+```bash
+python src/matching.py
+```
+
+Main output:
+
+```text
+outputs/matching/all_matching_summary.csv
+outputs/matching/real/
+outputs/matching/fake/
+```
+
+### 5. Machine Learning
+
+The machine learning phase uses descriptor and matching statistics as tabular
+features for real vs fake classification.
+
+- Random Forest
+- Support Vector Machine (SVM)
+- Accuracy, precision, recall, and F1-score
+- Classification report
+- Confusion matrix visualization
+
+Main script:
+
+```bash
+python src/ml_pipeline.py
+```
+
+Main output:
+
+```text
+outputs/results/ml_evaluation_results.csv
+outputs/figures/confusion_matrix_random_forest.png
+outputs/figures/confusion_matrix_svm.png
+```
+
+## Repository Structure
+
+```text
+.
+├── notebooks/
+│   ├── 01_preprocess.ipynb
+│   ├── 02_augmentation.ipynb
+│   ├── 03_feature_extraction.ipynb
+│   ├── 04_matching_analysis.ipynb
+│   └── 05_machine_learning.ipynb
+├── src/
+│   ├── feature_extraction.py
+│   ├── matching.py
+│   ├── ml_pipeline.py
+│   └── visualize_matching.py
+├── outputs/
+│   ├── figures/
+│   ├── matching/
+│   └── results/
+├── dataset/
+│   ├── original/
+│   ├── gaussian_blur/
+│   ├── gaussian_noise/
+│   └── jpeg_compression/
+├── dataset_manifest.csv
+├── requirements.txt
+└── README.md
+```
+
+## Notebook Description
+
+### `01_preprocess.ipynb`
+
+Prepares the Celeb-DF v2 data for image-based analysis. The notebook extracts
+frames, detects faces, aligns them using facial landmarks, and saves `112x112`
+face crops.
+
+### `02_augmentation.ipynb`
+
+Generates augmented image versions from the preprocessed face crops. The
+augmentations are Gaussian blur, Gaussian noise, and JPEG compression, plus the
+original image as the control condition.
+
+### `03_feature_extraction.ipynb`
+
+Demonstrates feature extraction using SIFT, ORB, and AKAZE. It explains
+keypoints, descriptors, descriptor shape, descriptor statistics, and keypoint
+visualization.
+
+### `04_matching_analysis.ipynb`
+
+Demonstrates feature matching between original and augmented images. It compares
+SIFT, ORB, and AKAZE using BFMatcher and Lowe Ratio Test, then visualizes good
+matches.
+
+### `05_machine_learning.ipynb`
+
+Demonstrates the classical machine learning phase. It loads feature statistics,
+prepares labels, trains Random Forest and SVM models, evaluates them, and
+visualizes confusion matrices.
+
+## Dataset and Manifest
+
+This project uses **Celeb-DF v2**, a deepfake dataset containing real celebrity
+videos and synthesized fake videos.
+
+The generated `dataset_manifest.csv` is the source of truth for downstream
+experiments. It records the image path, augmentation type, split, and class
+label.
+
+Important columns:
+
+| Column | Description |
+|---|---|
+| `original_path` | Historical path from the preprocessing phase |
+| `augmented_path` | Image path relative to the project root |
+| `augmentation` | `original`, `gaussian_blur`, `gaussian_noise`, or `jpeg_compression` |
+| `label` | Numeric label, where `0 = real` and `1 = fake` |
+| `split` | Dataset split, such as `train` or `test` |
+| `class` | String label, either `real` or `fake` |
+
+Example usage:
 
 ```python
 import pandas as pd
 import cv2
 
 df = pd.read_csv("dataset_manifest.csv")
+train_real = df[(df["split"] == "train") & (df["class"] == "real")]
 
-# Train set, augmentasi blur saja
-train_blur = df[(df["split"] == "train") & (df["augmentation"] == "gaussian_blur")]
-
-# Load satu gambar
-row = train_blur.iloc[0]
-img = cv2.imread(row["augmented_path"])  # path sudah relative ke project root
-y = row["label"]                          # 0 / 1
+row = train_real.iloc[0]
+image = cv2.imread(row["augmented_path"])
+label = row["label"]
 ```
 
-**Pola filtering yang umum**:
+## Experimental Results
 
-```python
-# Per-augmentation comparison
-for aug in df["augmentation"].unique():
-    subset = df[df["augmentation"] == aug]
-    # ... extract descriptor, evaluate, etc.
+The experiments indicate several useful observations:
 
-# Per-class breakdown
-df.groupby(["split", "class", "augmentation"]).size()
-```
+- SIFT generally produced more stable matches than ORB and AKAZE in the sample
+  matching analysis.
+- JPEG compression preserved many local structures compared with stronger
+  random distortions.
+- Gaussian noise changed local descriptor patterns and affected matching
+  robustness.
+- Random Forest outperformed SVM in the current machine learning experiment.
+- Augmentation changes descriptor robustness, keypoint counts, and matching
+  quality.
 
----
+These results are useful for understanding how classical feature descriptors
+respond to image degradation. They should be interpreted as project-level
+experimental findings rather than universal conclusions.
 
-## Project layout
+## Technologies Used
 
-```
-.
-├── notebooks/
-│   ├── 01_preprocess.ipynb    # Phase 1 — video → aligned face crops
-│   └── 02_augment.ipynb       # Phase 2 — face crops → 4 augmented versions
-├── README.md
-├── requirements.txt
-├── .gitignore
-├── dataset_manifest.csv       # Manifest 55,996 augmented crops (gitignored)
-└── dataset/                   # Phase 2 output (gitignored)
-    ├── original/{train,test}/{real,fake}/*.jpg
-    ├── jpeg_compression/...
-    ├── gaussian_blur/...
-    └── gaussian_noise/...
-```
+- Python
+- OpenCV
+- NumPy
+- Pandas
+- Matplotlib
+- scikit-learn
+- Jupyter Notebook
 
----
+## Team Collaboration
 
-## Dataset
+This project is organized for collaborative development and presentation:
 
-**Celeb-DF v2** — 590 video real + 5,639 video fake selebriti.
+- GitHub is used for version control and collaboration.
+- Core processing logic is placed in modular scripts under `src/`.
+- Jupyter notebooks are used for step-by-step demonstrations and final project
+  presentation.
+- Generated outputs are organized under `outputs/` for figures, matching
+  results, and machine learning evaluation results.
 
-- Train: 4,766 real + 4,789 fake aligned crops
-- Test: 1,069 real + 3,375 fake aligned crops
-- `YouTube-real/` tidak dipakai (bukan selebriti, tidak match dengan synthesis)
+## Notes
 
-Split mengikuti `List_of_testing_videos.txt` resmi dari paper Celeb-DF — anti
-data leakage berdasarkan identitas, bukan random split. Info split sudah baked
-ke dalam `dataset_manifest.csv` (kolom `split`), file txt asli tidak disertakan
-di repo.
+Large generated data folders such as `dataset/`, processed faces, and output
+artifacts may be excluded from Git depending on `.gitignore` settings. If a file
+is missing, rerun the corresponding notebook or script phase.
