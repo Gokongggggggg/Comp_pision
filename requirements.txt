@@ -1,0 +1,21 @@
+# Core
+numpy
+pandas
+tqdm
+matplotlib
+
+# Video / image processing
+opencv-python
+scikit-image
+
+# Deep learning
+torch
+torchvision
+facenet-pytorch
+
+# Classifier (Phase 3)
+scikit-learn
+
+# Notebook
+jupyter
+ipykernel
