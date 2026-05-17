@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import joblib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -22,6 +23,9 @@ FEATURE_STATISTICS_PATH = PROJECT_ROOT / "outputs" / "feature_statistics.csv"
 FIGURES_DIR = PROJECT_ROOT / "outputs" / "figures"
 RESULTS_DIR = PROJECT_ROOT / "outputs" / "results"
 RESULTS_PATH = RESULTS_DIR / "ml_evaluation_results.csv"
+MODELS_DIR = PROJECT_ROOT / "models"
+RANDOM_FOREST_MODEL_PATH = MODELS_DIR / "random_forest_model.pkl"
+FEATURE_COLUMNS_PATH = MODELS_DIR / "feature_columns.pkl"
 LABEL_MAP = {"real": 0, "fake": 1}
 MAX_SVM_TRAIN_ROWS = 5000
 
@@ -190,6 +194,15 @@ def train_random_forest(X_train, y_train):
     return model
 
 
+def save_random_forest_model(model, feature_columns: list[str]) -> None:
+    """Save the trained Random Forest model and its feature column order."""
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    joblib.dump(model, RANDOM_FOREST_MODEL_PATH)
+    joblib.dump(feature_columns, FEATURE_COLUMNS_PATH)
+    print(f"Saved model to {RANDOM_FOREST_MODEL_PATH}")
+    print(f"Saved feature columns to {FEATURE_COLUMNS_PATH}")
+
+
 def _sample_svm_training_data(
     X_train: pd.DataFrame,
     y_train: pd.Series,
@@ -344,6 +357,7 @@ def main() -> None:
     )
 
     random_forest = train_random_forest(X_train, y_train)
+    save_random_forest_model(random_forest, X_train.columns.tolist())
     svm = train_svm(X_train, y_train)
 
     results = [

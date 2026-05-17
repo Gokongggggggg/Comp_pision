@@ -3,6 +3,8 @@ numpy
 pandas
 tqdm
 matplotlib
+streamlit
+joblib
 
 # Video / image processing
 opencv-python
