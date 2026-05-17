@@ -1,19 +1,19 @@
 model,accuracy,precision,recall,f1_score,classification_report,confusion_matrix_path
-random_forest,0.5509533775142426,0.5514099037138928,0.5579655512381836,0.5546683577873224,"              precision    recall  f1-score   support
+random_forest,0.6733333333333333,0.6710526315789473,0.68,0.6754966887417219,"              precision    recall  f1-score   support
 
-        real       0.55      0.54      0.55     17161
-        fake       0.55      0.56      0.55     17243
+        real       0.68      0.67      0.67        75
+        fake       0.67      0.68      0.68        75
 
-    accuracy                           0.55     34404
-   macro avg       0.55      0.55      0.55     34404
-weighted avg       0.55      0.55      0.55     34404
+    accuracy                           0.67       150
+   macro avg       0.67      0.67      0.67       150
+weighted avg       0.67      0.67      0.67       150
 ",C:\Users\Kei\Documents\computer-vision\Comp_pision\outputs\figures\confusion_matrix_random_forest.png
-svm,0.5022671782350889,0.5049064071905665,0.3551006205416691,0.41695607763023496,"              precision    recall  f1-score   support
+svm,0.47333333333333333,0.47959183673469385,0.6266666666666667,0.5433526011560693,"              precision    recall  f1-score   support
 
-        real       0.50      0.65      0.57     17161
-        fake       0.50      0.36      0.42     17243
+        real       0.46      0.32      0.38        75
+        fake       0.48      0.63      0.54        75
 
-    accuracy                           0.50     34404
-   macro avg       0.50      0.50      0.49     34404
-weighted avg       0.50      0.50      0.49     34404
+    accuracy                           0.47       150
+   macro avg       0.47      0.47      0.46       150
+weighted avg       0.47      0.47      0.46       150
 ",C:\Users\Kei\Documents\computer-vision\Comp_pision\outputs\figures\confusion_matrix_svm.png
